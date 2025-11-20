@@ -19,7 +19,7 @@ A realistic 3D excavator simulation game built with **Three.js** and **Vite**. D
 ## 🕹️ Controls
 
 | Key | Action |
-| :--- | :--- |
+| :--- | :--- | 
 | **W / S** | Drive Forward / Backward (移动底座) |
 | **A / D** | Turn Base Left / Right (旋转底座) |
 | **Q / E** | Rotate Cab Left / Right (旋转驾驶室) |
