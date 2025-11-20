@@ -4,7 +4,7 @@ A realistic 3D excavator simulation game built with **Three.js** and **Vite**. D
 
 ![Excavator Game](public/vite.svg)
 
-## 🎮 Features.  123
+## 🎮 Features. 
 
 - **Realistic Excavator Model**: Fully articulated boom, stick, bucket, and rotating cab with hydraulic details.
 - **Interactive Soil System**: Particle-based soil physics. Scoop, carry, and dump soil.
