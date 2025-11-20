@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Excavator Game</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+  <div id="app"></div>
+  <div id="ui-layer">
+    <div id="info-panel">
+      <h1>挖掘机模拟器</h1>
+      <p>关卡: <span id="level-display">1</span></p>
+      <p>目标: <span id="objective-display">挖掉那堆土！</span></p>
+      <div id="controls-help">
+        <p><b>WASD</b>: 移动底座</p>
+        <p><b>Q/E</b>: 旋转驾驶室</p>
+        <p><b>方向键</b>: 移动机械臂</p>
+        <p><b>空格</b>: 铲土/倒土</p>
+      </div>
+    </div>
+    <div id="timer-container">
+      <div class="timer-card">
+        <span id="timer-display">60</span>
+      </div>
+    </div>
+    <div id="start-screen">
+      <div class="content">
+        <h1>挖掘机模拟器 3D</h1>
+        <p>操作指南:</p>
+        <ul style="text-align: left; display: inline-block;">
+          <li><b>WASD</b>: 移动底座</li>
+          <li><b>Q/E</b>: 旋转驾驶室</li>
+          <li><b>方向键</b>: 移动机械臂</li>
+          <li><b>空格</b>: 铲土/倒土</li>
+        </ul>
+        <br><br>
+        <button id="start-game-btn">开始游戏</button>
+      </div>
+    </div>
+    <div id="message-overlay" class="hidden">
+      <h2 id="message-text">关卡完成！</h2>
+      <button id="next-level-btn">下一关</button>
+      <button id="restart-level-btn" class="hidden"
+        style="background-color: #ef4444; color: white; margin-top: 10px;">重新开始</button>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
