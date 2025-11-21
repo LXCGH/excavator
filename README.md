@@ -2,7 +2,7 @@
 
 A realistic 3D excavator simulation game built with **Three.js** and **Vite**. Drive, dig, and complete levels in this browser-based physics sandbox.
 
-![Excavator Game](public/vite.svg)
+![Excavator Game](public/vite.svg).  
 
 ## 🎮 Features. 
 
