@@ -38,6 +38,7 @@ export class LevelManager {
         this.game.excavator.rotationY = 0;
 
         // Default time
+        this.lastUpdateTime = null; // 重置计时器基准时间
         this.timeLeft = 60;
 
         switch (level) {
@@ -111,12 +112,17 @@ export class LevelManager {
     update() {
         if (this.isLevelComplete || this.isLevelFailed) return;
 
-        // Timer Logic
-        // Assuming update is called ~60fps. Better to pass dt.
-        // But Game.js passes nothing to update(). Let's fix Game.js or just use a simple decrement.
-        // Actually, let's use performance.now() or just decrement by 1/60.
+        // 使用真实时间差计算计时器
+        const now = performance.now();
+        if (!this.lastUpdateTime) this.lastUpdateTime = now;
+        let dt = (now - this.lastUpdateTime) / 1000; // 转为秒
+        this.lastUpdateTime = now;
+
+        // 防止切标签页后一次性扣太多时间（最大步长 0.5 秒）
+        dt = Math.min(dt, 0.5);
+
         const prevTime = Math.ceil(this.timeLeft);
-        this.timeLeft -= 0.016; // Approx 60fps
+        this.timeLeft -= dt;
         const currTime = Math.ceil(this.timeLeft);
 
         if (currTime !== prevTime) {
@@ -174,9 +180,19 @@ export class LevelManager {
 
     completeLevel() {
         this.isLevelComplete = true;
-        this.ui.message.innerText = `第 ${this.currentLevel} 关完成！`;
-        this.ui.overlay.classList.remove('hidden');
         if (this.game.soundManager) this.game.soundManager.playSuccessSound();
+
+        if (this.currentLevel >= 3) {
+            // 全部关卡通关
+            this.ui.message.innerText = '🎉 恭喜通关！全部关卡已完成！';
+            this.ui.overlay.classList.remove('hidden');
+            this.ui.nextBtn.classList.add('hidden');
+            this.ui.restartBtn.classList.remove('hidden');
+            this.ui.restartBtn.innerText = '重新挑战';
+        } else {
+            this.ui.message.innerText = `第 ${this.currentLevel} 关完成！`;
+            this.ui.overlay.classList.remove('hidden');
+        }
     }
 
     nextLevel() {

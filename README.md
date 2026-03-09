@@ -1,4 +1,4 @@
-# 3D Excavator Simulator (挖掘机模拟器)
+# 智能挖掘机闯关 3D (3D Excavator Simulator)
 
 A realistic 3D excavator simulation game built with **Three.js** and **Vite**. Drive, dig, and complete levels in this browser-based physics sandbox.
 
