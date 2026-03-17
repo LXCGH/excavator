@@ -29,8 +29,8 @@ export class DrawGuessGateway implements OnGatewayConnection, OnGatewayDisconnec
     socket.emit('drawGuess:roomList', this.drawGuessService.listRooms());
   }
 
-  handleDisconnect(socket: Socket) {
-    const result = this.drawGuessService.leaveRoom(socket.id);
+  async handleDisconnect(socket: Socket) {
+    const result = await this.drawGuessService.leaveRoom(socket.id);
     if (!result) {
       return;
     }
@@ -56,16 +56,17 @@ export class DrawGuessGateway implements OnGatewayConnection, OnGatewayDisconnec
   }
 
   @SubscribeMessage('drawGuess:roomCreate')
-  handleRoomCreate(
+  async handleRoomCreate(
     @ConnectedSocket() socket: Socket,
-    @MessageBody() body: { playerName?: string; maxPlayers?: number },
+    @MessageBody() body: { playerName?: string; maxPlayers?: number; roundsPerPlayer?: number },
   ) {
     try {
-      this.leaveCurrentRoom(socket);
+      await this.leaveCurrentRoom(socket);
       const result = this.drawGuessService.createRoom(
         socket.id,
         body?.playerName ?? '',
         body?.maxPlayers ?? 6,
+        body?.roundsPerPlayer ?? 2,
       );
       socket.join(result.roomCode);
       socket.emit('drawGuess:joined', result);
@@ -77,12 +78,12 @@ export class DrawGuessGateway implements OnGatewayConnection, OnGatewayDisconnec
   }
 
   @SubscribeMessage('drawGuess:roomJoin')
-  handleRoomJoin(
+  async handleRoomJoin(
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: { roomCode?: string; playerName?: string },
   ) {
     try {
-      this.leaveCurrentRoom(socket);
+      await this.leaveCurrentRoom(socket);
       const result = this.drawGuessService.joinRoom(socket.id, body?.roomCode ?? '', body?.playerName ?? '');
       socket.join(result.roomCode);
       socket.emit('drawGuess:joined', result);
@@ -94,8 +95,8 @@ export class DrawGuessGateway implements OnGatewayConnection, OnGatewayDisconnec
   }
 
   @SubscribeMessage('drawGuess:roomLeave')
-  handleRoomLeave(@ConnectedSocket() socket: Socket) {
-    const result = this.drawGuessService.leaveRoom(socket.id);
+  async handleRoomLeave(@ConnectedSocket() socket: Socket) {
+    const result = await this.drawGuessService.leaveRoom(socket.id);
     if (!result) {
       return;
     }
@@ -124,9 +125,9 @@ export class DrawGuessGateway implements OnGatewayConnection, OnGatewayDisconnec
   }
 
   @SubscribeMessage('drawGuess:roundStart')
-  handleRoundStart(@ConnectedSocket() socket: Socket) {
+  async handleRoundStart(@ConnectedSocket() socket: Socket) {
     try {
-      const result = this.drawGuessService.startRound(socket.id);
+      const result = await this.drawGuessService.startRound(socket.id);
       this.stopRoomTimer(result.roomCode);
       this.server.to(result.roomCode).emit('drawGuess:canvasClear');
       this.server.to(result.roomCode).emit('drawGuess:roomUpdate', result.state);
@@ -154,12 +155,12 @@ export class DrawGuessGateway implements OnGatewayConnection, OnGatewayDisconnec
   }
 
   @SubscribeMessage('drawGuess:guessSubmit')
-  handleGuessSubmit(
+  async handleGuessSubmit(
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: { guess?: string },
   ) {
     try {
-      const result = this.drawGuessService.submitGuess(socket.id, body?.guess ?? '');
+      const result = await this.drawGuessService.submitGuess(socket.id, body?.guess ?? '');
       if ('shouldClearCanvas' in result && result.shouldClearCanvas) {
         this.server.to(result.roomCode).emit('drawGuess:canvasClear');
       }
@@ -225,8 +226,8 @@ export class DrawGuessGateway implements OnGatewayConnection, OnGatewayDisconnec
 
   private startRoomTimer(roomCode: string) {
     this.stopRoomTimer(roomCode);
-    const timer = setInterval(() => {
-      const result = this.drawGuessService.handleTick(roomCode);
+    const timer = setInterval(async () => {
+      const result = await this.drawGuessService.handleTick(roomCode);
       if (!result) {
         this.stopRoomTimer(roomCode);
         return;
@@ -261,8 +262,8 @@ export class DrawGuessGateway implements OnGatewayConnection, OnGatewayDisconnec
     });
   }
 
-  private leaveCurrentRoom(socket: Socket) {
-    const result = this.drawGuessService.leaveRoom(socket.id);
+  private async leaveCurrentRoom(socket: Socket) {
+    const result = await this.drawGuessService.leaveRoom(socket.id);
     if (!result) {
       return;
     }

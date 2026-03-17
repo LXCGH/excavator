@@ -14,12 +14,18 @@ import { DRAW_GUESS_WORD_BANK } from './draw-guess.words';
 const ROUND_DURATION_SECONDS = 75;
 const DRAWER_CORRECT_BONUS_POINTS = 4;
 const MAX_ROOM_PLAYERS = 6;
+const MAX_GUESSES_PER_PLAYER = 3;
+const DEFAULT_ROUNDS_PER_PLAYER = 2;
+const DEFAULT_ARK_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
+const DEFAULT_ARK_MODEL = 'doubao-seed-1-8-251228';
+const HARD_CODED_ARK_API_KEY = '04433a49-2cef-4da6-a8c6-c8bc5e508adf';
+const REMOTE_WORD_TIMEOUT_MS = 8000;
 const WORD_BANK: DrawGuessWordEntry[] = DRAW_GUESS_WORD_BANK;
 
 interface DrawGuessRoomState {
   code: string;
   maxPlayers: number;
-  maxRounds: number;
+  roundsPerPlayer: number;
   hostPlayerId: string;
   players: DrawGuessPlayerState[];
   phase: DrawGuessPhase;
@@ -42,16 +48,25 @@ interface DrawGuessRoomState {
 export class DrawGuessService {
   private readonly rooms = new Map<string, DrawGuessRoomState>();
   private readonly socketRoomIndex = new Map<string, { roomCode: string; playerId: string }>();
+  private readonly remoteWordApiUrl = DEFAULT_ARK_API_URL;
+  private readonly remoteWordApiKey = HARD_CODED_ARK_API_KEY;
+  private readonly remoteWordModel = DEFAULT_ARK_MODEL;
 
-  createRoom(socketId: string, playerName: string, maxPlayers = MAX_ROOM_PLAYERS) {
+  createRoom(
+    socketId: string,
+    playerName: string,
+    maxPlayers = MAX_ROOM_PLAYERS,
+    roundsPerPlayer = DEFAULT_ROUNDS_PER_PLAYER,
+  ) {
     const normalizedName = this.normalizePlayerName(playerName, 1);
     const normalizedMaxPlayers = this.normalizeMaxPlayers(maxPlayers);
+    const normalizedRoundsPerPlayer = this.normalizeRoundsPerPlayer(roundsPerPlayer);
     const roomCode = this.generateRoomCode();
     const player = this.createPlayer(socketId, normalizedName);
     const room: DrawGuessRoomState = {
       code: roomCode,
       maxPlayers: normalizedMaxPlayers,
-      maxRounds: this.getMatchRoundsByPlayers(1),
+      roundsPerPlayer: normalizedRoundsPerPlayer,
       hostPlayerId: player.id,
       players: [player],
       phase: 'waiting',
@@ -64,7 +79,7 @@ export class DrawGuessService {
       lastCategory: null,
       usedWords: [],
       guessAttempts: 0,
-      logs: [this.makeLog('system', `${normalizedName} 创建了房间。`)],
+      logs: [],
       canvasEvents: [],
       roundDeadlineAt: null,
       drawerCursor: 0,
@@ -95,9 +110,6 @@ export class DrawGuessService {
     const player = this.createPlayer(socketId, normalizedName);
 
     room.players.push(player);
-    room.maxRounds = this.getMatchRoundsByPlayers(room.players.length);
-    room.logs.push(this.makeLog('system', `${normalizedName} 加入了房间。`));
-    room.logs = room.logs.slice(-30);
     this.socketRoomIndex.set(socketId, { roomCode: room.code, playerId: player.id });
 
     return {
@@ -108,7 +120,7 @@ export class DrawGuessService {
     };
   }
 
-  leaveRoom(socketId: string) {
+  async leaveRoom(socketId: string) {
     const membership = this.socketRoomIndex.get(socketId);
     if (!membership) {
       return null;
@@ -126,8 +138,6 @@ export class DrawGuessService {
     }
 
     const [removedPlayer] = room.players.splice(playerIndex, 1);
-    room.logs.push(this.makeLog('system', `${removedPlayer.name} 离开了房间。`));
-    room.logs = room.logs.slice(-30);
 
     if (room.players.length === 0) {
       this.rooms.delete(room.code);
@@ -139,7 +149,7 @@ export class DrawGuessService {
     }
 
     if (room.drawerPlayerId === removedPlayer.id) {
-      this.finishRound(room, '画手离开了房间，本轮已结束。');
+      await this.finishRound(room, '画手离开了房间，本轮已结束。');
     }
 
     if (room.players.length < 2) {
@@ -156,12 +166,14 @@ export class DrawGuessService {
       room.roundDeadlineAt = null;
       room.canvasEvents = [];
       room.drawerCursor = 0;
+      room.logs = [];
       room.players.forEach((member) => {
         member.isReady = false;
+        member.guessCount = 0;
+        member.drawTurnsTaken = 0;
       });
-      room.maxRounds = this.getMatchRoundsByPlayers(room.players.length);
-    } else if (room.round === 0 && room.phase === 'waiting') {
-      room.maxRounds = this.getMatchRoundsByPlayers(room.players.length);
+    } else if (room.phase !== 'waiting') {
+      this.applyGameOverIfNeeded(room);
     }
 
     return {
@@ -171,7 +183,7 @@ export class DrawGuessService {
     };
   }
 
-  startRound(socketId: string) {
+  async startRound(socketId: string) {
     const { room, player } = this.getMembershipOrThrow(socketId);
     this.assertHost(room, player.id);
     if (room.isGameOver) {
@@ -187,7 +199,7 @@ export class DrawGuessService {
     if (!room.players.every((item) => item.isReady)) {
       throw new Error('仍有玩家尚未准备。');
     }
-    const roundResult = this.prepareNextRound(room);
+    const roundResult = await this.prepareNextRound(room);
     const drawerSocketId = room.players.find((member) => member.id === roundResult.drawerPlayerId)?.socketId ?? null;
 
     return {
@@ -209,8 +221,6 @@ export class DrawGuessService {
 
     room.phase = 'drawing';
     room.roundDeadlineAt = Date.now() + ROUND_DURATION_SECONDS * 1000;
-    room.logs.push(this.makeLog('system', '作画开始，其他玩家可以猜词了。'));
-    room.logs = room.logs.slice(-30);
 
     return {
       roomCode: room.code,
@@ -218,7 +228,7 @@ export class DrawGuessService {
     };
   }
 
-  submitGuess(socketId: string, guess: string) {
+  async submitGuess(socketId: string, guess: string) {
     const { room, player } = this.getMembershipOrThrow(socketId);
     if (room.phase !== 'drawing' || !room.currentWord) {
       throw new Error('当前还不能猜词。');
@@ -227,14 +237,18 @@ export class DrawGuessService {
     if (player.id === room.drawerPlayerId) {
       throw new Error('画手不能参与猜词。');
     }
+    if (player.guessCount >= MAX_GUESSES_PER_PLAYER) {
+      throw new Error('本回合你的猜词机会已经用完了。');
+    }
 
     const normalizedGuess = this.normalizeGuess(guess);
     if (!normalizedGuess) {
       throw new Error('请输入猜词内容。');
     }
 
+    player.guessCount += 1;
     room.guessAttempts += 1;
-    room.logs.push(this.makeLog('guess', `${player.name}：${guess.trim()}`));
+    room.logs.push(this.makeLog('guess', `${player.name} 猜题为 ${guess.trim()}`));
 
     if (normalizedGuess === this.normalizeGuess(room.currentWord.word)) {
       player.score += 10 + Math.max(0, Math.ceil(this.getTimeLeftSeconds(room) / 5));
@@ -244,15 +258,8 @@ export class DrawGuessService {
           : null;
       if (drawer && drawer.id !== player.id) {
         drawer.score += DRAWER_CORRECT_BONUS_POINTS;
-        room.logs.push(
-          this.makeLog(
-            'system',
-            `${drawer.name} 的画被猜中，获得 ${DRAWER_CORRECT_BONUS_POINTS} 分奖励。`,
-          ),
-        );
       }
-      room.logs.push(this.makeLog('success', `${player.name} 猜中了答案！`));
-      const transition = this.finishRound(room, `本轮答案是“${room.currentWord.word}”。`);
+      const transition = await this.finishRound(room, `本轮答案是“${room.currentWord.word}”。`);
       room.logs = room.logs.slice(-30);
       return {
         roomCode: room.code,
@@ -364,7 +371,7 @@ export class DrawGuessService {
     };
   }
 
-  handleTick(roomCode: string) {
+  async handleTick(roomCode: string) {
     const room = this.rooms.get(roomCode);
     if (!room || room.phase !== 'drawing') {
       return null;
@@ -377,7 +384,7 @@ export class DrawGuessService {
       };
     }
 
-    const transition = this.finishRound(room, '时间到，没人猜出来。');
+    const transition = await this.finishRound(room, '时间到，没人猜出来。');
     return {
       roomCode: room.code,
       state: this.toSnapshot(room),
@@ -431,10 +438,6 @@ export class DrawGuessService {
     }
 
     player.isReady = !player.isReady;
-    room.logs.push(
-      this.makeLog('system', `${player.name}${player.isReady ? ' 已准备。' : ' 取消了准备。'}`),
-    );
-    room.logs = room.logs.slice(-30);
 
     return {
       roomCode: room.code,
@@ -459,16 +462,16 @@ export class DrawGuessService {
     room.lastCategory = null;
     room.usedWords = [];
     room.guessAttempts = 0;
+    room.logs = [];
     room.canvasEvents = [];
     room.roundDeadlineAt = null;
     room.drawerCursor = 0;
-    room.maxRounds = this.getMatchRoundsByPlayers(room.players.length);
     room.players.forEach((member) => {
       member.score = 0;
       member.isReady = false;
+      member.guessCount = 0;
+      member.drawTurnsTaken = 0;
     });
-    room.logs.push(this.makeLog('system', '房主重置了对战，等待玩家重新准备。'));
-    room.logs = room.logs.slice(-30);
 
     return {
       roomCode: room.code,
@@ -513,12 +516,9 @@ export class DrawGuessService {
     }
   }
 
-  private finishRound(room: DrawGuessRoomState, message: string) {
+  private async finishRound(room: DrawGuessRoomState, _message: string) {
     room.phase = 'finished';
     room.roundDeadlineAt = null;
-    if (room.currentWord) {
-      room.logs.push(this.makeLog('system', message));
-    }
     this.applyGameOverIfNeeded(room);
     if (room.isGameOver) {
       room.logs = room.logs.slice(-30);
@@ -530,11 +530,10 @@ export class DrawGuessService {
       room.currentWord = null;
       room.lastCategory = null;
       room.guessAttempts = 0;
-      room.logs.push(this.makeLog('system', '人数不足 2 人，对战已暂停。'));
-      room.logs = room.logs.slice(-30);
+      room.logs = room.logs.filter((log) => log.type === 'guess').slice(-30);
       return {};
     }
-    const nextRound = this.prepareNextRound(room);
+    const nextRound = await this.prepareNextRound(room);
     room.logs = room.logs.slice(-30);
     return {
       shouldClearCanvas: true,
@@ -543,15 +542,14 @@ export class DrawGuessService {
     };
   }
 
-  private prepareNextRound(room: DrawGuessRoomState) {
-    if (room.round === 0) {
-      room.maxRounds = this.getMatchRoundsByPlayers(room.players.length);
-    }
-
+  private async prepareNextRound(room: DrawGuessRoomState) {
     room.phase = 'memorize';
     room.round += 1;
     room.guessAttempts = 0;
-    room.currentWord = this.pickNextWord(room.lastWord, room.lastCategory, room.usedWords);
+    room.players.forEach((player) => {
+      player.guessCount = 0;
+    });
+    room.currentWord = await this.pickNextWord(room.lastWord, room.lastCategory, room.usedWords);
     room.lastWord = room.currentWord.word;
     room.lastCategory = room.currentWord.category;
     if (!room.usedWords.includes(room.currentWord.word)) {
@@ -560,13 +558,7 @@ export class DrawGuessService {
     room.drawerPlayerId = this.pickNextDrawer(room);
     room.roundDeadlineAt = null;
     room.canvasEvents = [];
-    room.logs.push(
-      this.makeLog(
-        'system',
-        `第 ${room.round} 回合开始，画手是 ${this.getPlayerName(room, room.drawerPlayerId)}。`,
-      ),
-    );
-    room.logs.push(this.makeLog('system', '当前画手点击“我准备好了”后开始作画。'));
+    room.logs.push(this.makeLog('drawer', `当前画手：${this.getPlayerName(room, room.drawerPlayerId)}`));
     room.logs = room.logs.slice(-30);
     return {
       drawerPlayerId: room.drawerPlayerId,
@@ -578,7 +570,7 @@ export class DrawGuessService {
     if (room.isGameOver) {
       return;
     }
-    if (room.round < room.maxRounds) {
+    if (!room.players.length || room.players.some((player) => player.drawTurnsTaken < room.roundsPerPlayer)) {
       return;
     }
 
@@ -586,22 +578,42 @@ export class DrawGuessService {
     const winners = room.players.filter((player) => player.score === highestScore);
     room.isGameOver = true;
     room.winnerPlayerIds = winners.map((winner) => winner.id);
-    const winnerNames = winners.map((winner) => winner.name).join('、');
-    room.logs.push(
-      this.makeLog(
-        'success',
-        `本局结束（${room.maxRounds} 回合），冠军：${winnerNames}（${highestScore} 分）。`,
-      ),
-    );
+    room.logs = room.logs.filter((log) => log.type === 'guess').slice(-30);
   }
 
   private pickNextDrawer(room: DrawGuessRoomState) {
-    const drawer = room.players[room.drawerCursor % room.players.length];
-    room.drawerCursor = (room.drawerCursor + 1) % room.players.length;
-    return drawer.id;
+    const eligiblePlayers = room.players.filter((player) => player.drawTurnsTaken < room.roundsPerPlayer);
+    if (!eligiblePlayers.length) {
+      throw new Error('没有可继续作画的玩家。');
+    }
+
+    const totalPlayers = room.players.length;
+    for (let step = 0; step < totalPlayers; step += 1) {
+      const player = room.players[(room.drawerCursor + step) % totalPlayers];
+      if (player.drawTurnsTaken >= room.roundsPerPlayer) {
+        continue;
+      }
+      room.drawerCursor = (room.drawerCursor + step + 1) % totalPlayers;
+      player.drawTurnsTaken += 1;
+      return player.id;
+    }
+
+    const fallbackPlayer = eligiblePlayers[0];
+    fallbackPlayer.drawTurnsTaken += 1;
+    room.drawerCursor = (room.players.findIndex((player) => player.id === fallbackPlayer.id) + 1) % totalPlayers;
+    return fallbackPlayer.id;
   }
 
-  private pickNextWord(lastWord: string | null, lastCategory: string | null, usedWords: string[]) {
+  private async pickNextWord(lastWord: string | null, lastCategory: string | null, usedWords: string[]) {
+    const remoteWord = await this.requestRemoteWord(lastWord, lastCategory, usedWords);
+    if (remoteWord) {
+      return remoteWord;
+    }
+
+    return this.pickLocalWord(lastWord, lastCategory, usedWords);
+  }
+
+  private pickLocalWord(lastWord: string | null, lastCategory: string | null, usedWords: string[]) {
     if (usedWords.length >= WORD_BANK.length) {
       usedWords.length = 0;
     }
@@ -630,6 +642,102 @@ export class DrawGuessService {
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
+  private async requestRemoteWord(
+    lastWord: string | null,
+    lastCategory: string | null,
+    usedWords: string[],
+  ): Promise<DrawGuessWordEntry | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REMOTE_WORD_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(this.remoteWordApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.remoteWordApiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.remoteWordModel,
+          temperature: 1.1,
+          messages: [
+            {
+              role: 'system',
+              content: '你是你画我猜出题器。只返回 JSON，不要解释，不要 markdown。',
+            },
+            {
+              role: 'user',
+              content: [
+                '请生成一个适合你画我猜的中文题目。',
+                '严格返回 JSON，格式为 {"word":"苹果","category":"水果"}。',
+                'word 必须只有两个汉字，category 用 2 到 4 个汉字表示类型。',
+                '题目要具体、常见、容易画，不要抽象概念，不要人名地名。',
+                lastWord ? `不要和上一题重复：${lastWord}。` : '',
+                lastCategory ? `尽量不要继续使用这个分类：${lastCategory}。` : '',
+                usedWords.length ? `不要与这些历史题目重复：${usedWords.slice(-20).join('、')}。` : '',
+              ].filter(Boolean).join('\n'),
+            },
+          ],
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const result = await response.json().catch(() => null);
+      const content = result?.choices?.[0]?.message?.content;
+      return this.parseRemoteWordEntry(content, lastWord, lastCategory, usedWords);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private parseRemoteWordEntry(
+    rawContent: unknown,
+    lastWord: string | null,
+    lastCategory: string | null,
+    usedWords: string[],
+  ): DrawGuessWordEntry | null {
+    if (typeof rawContent !== 'string' || !rawContent.trim()) {
+      return null;
+    }
+
+    const content = rawContent.trim();
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)```/i) ?? content.match(/```([\s\S]*?)```/);
+    const jsonText = (jsonMatch?.[1] ?? content).trim();
+
+    let parsed: { word?: unknown; category?: unknown } | null = null;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch {
+      parsed = { word: content, category: 'AI题目' };
+    }
+
+    const word = typeof parsed?.word === 'string' ? parsed.word.trim() : '';
+    const category = typeof parsed?.category === 'string' ? parsed.category.trim() : 'AI题目';
+
+    if (!/^[\u4e00-\u9fa5]{2}$/.test(word)) {
+      return null;
+    }
+    if (word === lastWord || usedWords.includes(word)) {
+      return null;
+    }
+
+    const normalizedCategory = category.replace(/\s+/g, '').slice(0, 4) || 'AI题目';
+    if (lastCategory && normalizedCategory === lastCategory) {
+      return null;
+    }
+
+    return {
+      word,
+      category: normalizedCategory,
+    };
+  }
+
   private getTimeLeftSeconds(room: DrawGuessRoomState) {
     if (!room.roundDeadlineAt) {
       return ROUND_DURATION_SECONDS;
@@ -646,7 +754,8 @@ export class DrawGuessService {
     return {
       roomCode: room.code,
       maxPlayers: room.maxPlayers,
-      maxRounds: room.maxRounds,
+      roundsPerPlayer: room.roundsPerPlayer,
+      maxRounds: room.players.length * room.roundsPerPlayer,
       isGameOver: room.isGameOver,
       winnerPlayerIds: [...room.winnerPlayerIds],
       allPlayersReady: room.players.length > 0 && room.players.every((player) => player.isReady),
@@ -668,6 +777,8 @@ export class DrawGuessService {
         isHost: player.id === room.hostPlayerId,
         isDrawer: player.id === room.drawerPlayerId,
         isReady: player.isReady,
+        guessCount: player.guessCount,
+        drawTurnsTaken: player.drawTurnsTaken,
       })),
       logs: room.logs,
     };
@@ -713,6 +824,8 @@ export class DrawGuessService {
       name,
       score: 0,
       isReady: false,
+      guessCount: 0,
+      drawTurnsTaken: 0,
     };
   }
 
@@ -725,8 +838,13 @@ export class DrawGuessService {
     return normalized;
   }
 
-  private getMatchRoundsByPlayers(playerCount: number) {
-    return Math.max(2, playerCount * 2);
+  private normalizeRoundsPerPlayer(roundsPerPlayer: number) {
+    const normalized = Number(roundsPerPlayer);
+    if (!Number.isInteger(normalized) || normalized < 1 || normalized > 5) {
+      return DEFAULT_ROUNDS_PER_PLAYER;
+    }
+
+    return normalized;
   }
 
   private getPlayerName(room: DrawGuessRoomState, playerId: string | null) {

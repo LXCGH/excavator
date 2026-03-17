@@ -9,11 +9,13 @@ export interface DrawGuessPlayerState {
   name: string;
   score: number;
   isReady: boolean;
+  guessCount: number;
+  drawTurnsTaken: number;
 }
 
 export interface DrawGuessLogEntry {
   id: string;
-  type: 'system' | 'guess' | 'success';
+  type: 'drawer' | 'guess';
   text: string;
 }
 
@@ -35,6 +37,7 @@ export type DrawGuessPhase = 'waiting' | 'memorize' | 'drawing' | 'finished';
 export interface DrawGuessRoomSnapshot {
   roomCode: string;
   maxPlayers: number;
+  roundsPerPlayer: number;
   maxRounds: number;
   isGameOver: boolean;
   winnerPlayerIds: string[];
@@ -57,6 +60,8 @@ export interface DrawGuessRoomSnapshot {
     isHost: boolean;
     isDrawer: boolean;
     isReady: boolean;
+    guessCount: number;
+    drawTurnsTaken: number;
   }>;
   logs: DrawGuessLogEntry[];
 }
