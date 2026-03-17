@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "feishu": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@larksuiteoapi/lark-mcp",
+        "mcp",
+        "-a",
+        "cli_a923a5de7df95bc4",
+        "-s",
+        "0kP2M6a7nr0701pxMEtK7c8HmmT4qans",
+        "--oauth",
+        "--token-mode",
+        "user_access_token",
+        "-t",
+        "preset.default,docx.v1.documentBlock.get,docx.v1.documentBlock.list,docx.v1.documentBlock.patch,docx.v1.documentBlockChildren.get,docx.v1.documentBlockChildren.create,docx.v1.documentBlock.batchUpdate,docx.v1.document.create"
+      ]
+    }
+  }
+}

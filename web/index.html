@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>挖掘机大作战 / 你画我猜</title>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div id="ui-layer">
+    <div id="info-panel">
+      <h1>挖掘机大作战</h1>
+      <p>关卡: <span id="level-display">1</span></p>
+      <p>目标: <span id="objective-display">挖掉那堆土！</span></p>
+      <div id="controls-help">
+        <p><b>WASD</b>: 移动底座</p>
+        <p><b>Q/E</b>: 旋转驾驶室</p>
+        <p><b>方向键</b>: 移动机械臂</p>
+        <p><b>空格</b>: 铲土/倒土</p>
+      </div>
+    </div>
+    <div id="timer-container">
+      <button id="back-to-lobby-btn" class="secondary-btn" title="返回游戏大厅">大厅</button>
+      <button id="pause-btn" title="快捷键 (P键)">⏸ 暂停</button>
+      <div class="timer-card">
+        <span id="timer-display">60</span>
+      </div>
+    </div>
+    <div id="start-screen">
+      <div class="content">
+        <h1>小游戏大厅</h1>
+        <div class="start-layout">
+          <section class="login-panel">
+            <h2>先登录，再开局</h2>
+            <form id="login-form" class="login-form">
+              <label>
+                用户名
+                <input id="username-input" name="username" type="text" autocomplete="username" value="player" />
+              </label>
+              <label>
+                密码
+                <input id="password-input" name="password" type="password" autocomplete="current-password"
+                  value="excavator123" />
+              </label>
+              <button id="login-btn" type="submit">登录</button>
+            </form>
+            <div id="auth-summary" class="auth-summary hidden">
+              <p>欢迎回来，<span id="nickname-display">试玩玩家</span></p>
+              <button id="logout-btn" class="secondary-btn" type="button">切换账号</button>
+            </div>
+            <p id="login-status" class="login-status">默认演示账号：player / excavator123</p>
+          </section>
+          <section class="start-guide">
+            <div class="mode-grid">
+              <button type="button" class="mode-card" data-game-mode="excavator">
+                <span class="mode-card-tag">3D 闯关</span>
+                <strong>挖掘机大作战</strong>
+                <span>驾驶挖掘机完成限时任务。</span>
+              </button>
+              <button type="button" class="mode-card selected" data-game-mode="drawGuess">
+                <span class="mode-card-tag">多人实时</span>
+                <strong>你画我猜</strong>
+                <span>创建房间联机作画，其他人同步看图猜词。</span>
+              </button>
+            </div>
+            <div class="mode-details">
+              <p class="mode-eyebrow">当前模式</p>
+              <h2 id="mode-title">你画我猜</h2>
+              <p id="mode-description">多人联机实时作画猜词，房主先建房，玩家加入准备后即可开始。</p>
+              <ul id="mode-feature-list" class="mode-feature-list"></ul>
+            </div>
+            <p id="start-hint">登录成功后才可以开始游戏。</p>
+            <button id="start-game-btn" disabled>登录后开始游戏</button>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- 暂停状态遮罩层 -->
+    <div id="pause-overlay" class="hidden">
+      <h2 style="font-size: 48px; color: #fbbf24; margin-bottom: 10px;">已暂停</h2>
+      <p style="font-size: 20px;">按 P 键或点击右上角按钮继续</p>
+    </div>
+    <div id="message-overlay" class="hidden">
+      <h2 id="message-text">关卡完成！</h2>
+      <button id="next-level-btn">下一关</button>
+      <button id="restart-level-btn" class="hidden"
+        style="background-color: #ef4444; color: white; margin-top: 10px;">重新开始</button>
+    </div>
+    <!-- 你画我猜：开始游戏弹窗（创建/加入） -->
+    <div id="draw-guess-modal" class="draw-modal hidden">
+      <div class="draw-modal-content">
+        <h2>你画我猜</h2>
+        <p class="draw-modal-subtitle">选择进入方式</p>
+        <div class="draw-modal-actions">
+          <button id="draw-modal-create-btn" type="button" class="draw-modal-btn">创建游戏</button>
+          <button id="draw-modal-join-btn" type="button" class="draw-modal-btn secondary-btn">加入游戏</button>
+        </div>
+        <button id="draw-modal-close-btn" type="button" class="secondary-btn draw-modal-close">取消</button>
+      </div>
+    </div>
+    <!-- 创建游戏表单 -->
+    <div id="draw-create-form" class="draw-modal hidden">
+      <div class="draw-modal-content">
+        <h2>创建游戏</h2>
+        <label class="draw-field">
+          人数上限
+          <select id="draw-max-players-select">
+            <option value="2">2 人</option>
+            <option value="3">3 人</option>
+            <option value="4">4 人</option>
+            <option value="5">5 人</option>
+            <option value="6">6 人</option>
+          </select>
+        </label>
+        <div class="draw-modal-actions">
+          <button id="draw-create-submit-btn" type="button">创建并进入房间</button>
+        </div>
+        <button id="draw-create-back-btn" type="button" class="secondary-btn draw-modal-close">返回</button>
+      </div>
+    </div>
+    <!-- 加入游戏 - 房间列表 -->
+    <div id="draw-join-form" class="draw-modal hidden">
+      <div class="draw-modal-content draw-join-content">
+        <h2>加入游戏</h2>
+        <p class="draw-modal-subtitle">选择房间加入，或输入房间码</p>
+        <div id="draw-room-list" class="draw-room-list"></div>
+        <div class="draw-join-by-code">
+          <input id="draw-join-code-input" type="text" placeholder="输入 6 位房间码" maxlength="6" autocomplete="off" />
+          <button id="draw-join-by-code-btn" type="button">通过房间码加入</button>
+        </div>
+        <button id="draw-join-refresh-btn" type="button" class="secondary-btn">刷新列表</button>
+        <button id="draw-join-back-btn" type="button" class="secondary-btn draw-modal-close">返回</button>
+      </div>
+    </div>
+    <div id="draw-guess-layer" class="hidden">
+      <div class="draw-guess-shell">
+        <aside class="draw-sidebar">
+          <!-- 房间视图：仅显示房间卡片 -->
+          <div class="draw-card draw-room-card">
+            <div class="draw-card-head">
+              <h3 id="draw-room-title">房间 未加入</h3>
+              <span id="draw-player-count">0 人</span>
+            </div>
+            <div class="draw-room-meta-row">
+              <span id="draw-room-code-display" class="draw-room-code">—</span>
+              <span class="draw-room-code-hint">房间码（分享给好友）</span>
+            </div>
+            <div id="draw-room-avatar-slots" class="draw-avatar-slots"></div>
+            <div class="draw-room-actions-simple">
+              <button id="draw-ready-btn" type="button" class="secondary-btn">准备</button>
+              <button id="draw-new-round-btn" type="button" disabled>开始游戏</button>
+              <button id="draw-leave-room-btn" type="button" class="secondary-btn hidden">离开房间</button>
+            </div>
+          </div>
+          <!-- 游戏视图：以下内容仅在游戏中显示 -->
+          <div class="draw-card draw-game-header hidden" id="draw-game-header">
+            <div class="draw-card-head">
+              <div>
+                <p class="mode-eyebrow">多人实时模式</p>
+                <h2>你画我猜</h2>
+              </div>
+            </div>
+            <p id="draw-stage-text" class="draw-stage-text">准备开始新回合</p>
+            <div class="draw-stats">
+              <div class="draw-stat">
+                <span>回合</span>
+                <strong id="draw-round-display">0</strong>
+              </div>
+              <div class="draw-stat">
+                <span>得分</span>
+                <strong id="draw-score-display">0</strong>
+              </div>
+              <div class="draw-stat">
+                <span>时间</span>
+                <strong id="draw-timer-display">75</strong>
+              </div>
+            </div>
+          </div>
+          <div class="draw-card draw-word-card hidden" id="draw-word-card">
+            <p id="draw-word-caption">先创建或加入房间，再等待房主开始新回合。</p>
+            <h3 id="draw-secret-word">准备好就开画</h3>
+            <p id="draw-hint-text">系统会根据猜错次数逐步放提示。</p>
+            <div class="draw-primary-actions">
+              <button id="draw-begin-btn" type="button" class="hidden">我准备好了</button>
+            </div>
+          </div>
+        </aside>
+        <section class="draw-board-panel">
+          <div class="draw-play-area">
+            <div class="draw-board-stack">
+              <div class="draw-canvas-wrap">
+                <canvas id="draw-canvas"></canvas>
+              </div>
+              <div class="draw-card draw-tools-card hidden" id="draw-tools-card">
+                <div class="draw-toolbar draw-toolbar-bottom">
+                  <div class="brush-swatches">
+                    <button type="button" class="swatch selected" data-brush-color="#0f172a" title="深色"></button>
+                    <button type="button" class="swatch" data-brush-color="#ef4444" title="红色"></button>
+                    <button type="button" class="swatch" data-brush-color="#22c55e" title="绿色"></button>
+                    <button type="button" class="swatch" data-brush-color="#3b82f6" title="蓝色"></button>
+                    <button type="button" class="swatch" data-brush-color="#f59e0b" title="橙色"></button>
+                    <button type="button" class="swatch" data-brush-color="#a855f7" title="紫色"></button>
+                  </div>
+                  <div class="draw-size-controls">
+                    <label class="brush-size-control">
+                      画笔粗细
+                      <input id="draw-brush-size" type="range" min="2" max="24" value="6" />
+                      <span id="draw-brush-size-value" class="size-value">6px</span>
+                    </label>
+                    <label class="brush-size-control">
+                      橡皮大小
+                      <input id="draw-eraser-size" type="range" min="6" max="42" value="18" />
+                      <span id="draw-eraser-size-value" class="size-value">18px</span>
+                    </label>
+                  </div>
+                  <div class="draw-tool-actions">
+                    <button id="draw-brush-btn" type="button" class="secondary-btn selected">画笔</button>
+                    <button id="draw-eraser-btn" type="button" class="secondary-btn">橡皮</button>
+                    <button id="draw-undo-btn" type="button" class="secondary-btn">撤回</button>
+                    <button id="draw-clear-btn" type="button" class="secondary-btn">清空画布</button>
+                  </div>
+                  <div class="draw-tool-status">
+                    <span id="draw-current-tool">画笔</span>
+                    <span id="draw-current-size">6px</span>
+                    <span id="draw-current-color" class="draw-current-color"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="draw-guess-panel">
+              <form id="guess-form" class="guess-form">
+                <input id="guess-input" type="text" placeholder="轮到你猜了，输入答案..." autocomplete="off" disabled />
+                <button type="submit">提交猜词</button>
+              </form>
+              <div class="guess-feed">
+                <div class="guess-feed-head">
+                  <h3>猜词记录</h3>
+                  <span id="draw-guess-count">0 次尝试</span>
+                </div>
+                <div id="guess-log" class="guess-log"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div id="draw-victory-overlay" class="draw-victory-overlay hidden" aria-live="polite">
+        <canvas id="draw-victory-canvas"></canvas>
+        <div class="draw-victory-card">
+          <p class="draw-victory-badge">Victory</p>
+          <h2 id="draw-victory-title">玩家胜利！</h2>
+          <p id="draw-victory-subtitle">最终得分 0 分</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>

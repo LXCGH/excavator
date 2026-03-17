@@ -1,31 +1,26 @@
-# 🔗 飞书项目协作资源导航
+# 🔗 飞书项目资源配置
 
-本文档定义了 AI 智能体在开发本项目时需访问的外部实时数据源。
+本文件用于记录项目接入飞书 MCP 所需的文档链接与配置状态，供 AI 在开发前读取。
 
-> **AI 执行指令**：若某链接状态为 `未配置`，则跳过对该链接的 MCP 读取，直接使用本地文档。仅当状态为 `已配置` 时才通过 MCP 读取最新内容。
-
----
-
-## 1. 核心文档
+## 1. 飞书资源清单
 
 | 资源 | 链接 | 状态 |
 | :--- | :--- | :---: |
-| **项目需求 (PRD/Wiki)** | — | `未配置` |
-| **API 接口规范** | https://xa0r7pu9bau.feishu.cn/wiki/Afj4wiAO1i3dktkBxIGcsDt7nzd | `已配置` |
+| 项目文档 | https://xa0r7pu9bau.feishu.cn/wiki/WyzHwHCGSir9yfkIeAIc4PMwnPb | `已配置` |
+| API 接口规范 | https://xa0r7pu9bau.feishu.cn/wiki/BECuwTKmzirwoYkvDEGcr75WngA | `已配置` |
+| 测试用例库 | https://xa0r7pu9bau.feishu.cn/wiki/EHFUwM8sai8oVOk84x2cvQLhn2c?table=tblEuI5AelkegD58&view=vewuDBLjcE | `已配置` |
 
-## 2. 质量与反馈
+## 2. 使用规则
 
-| 资源 | 链接 | 状态 |
-| :--- | :--- | :---: |
-| **测试用例库** | — | `未配置` |
-| **Bug 追踪列表** | — | `未配置` |
+1. AI 执行任务前必须先读取本文件。
+2. 仅当资源状态为 `已配置` 时，AI 才能通过飞书 MCP 读取对应内容。
+3. 若状态为 `未配置`，应先补充链接和状态，再执行依赖该资源的开发任务。
+4. 若状态为 `已配置` 但飞书 MCP 读取失败，AI 必须明确说明失败原因。
 
----
-
-## 如何配置
-
-将上表中的 `—` 替换为飞书文档链接，并将状态改为 `已配置`。示例：
+## 3. 配置示例
 
 ```markdown
-| **项目需求 (PRD/Wiki)** | https://xxx.feishu.cn/wiki/xxx | `已配置` |
+| 项目文档 | https://xxx.feishu.cn/wiki/xxx | `已配置` |
+| API 接口规范 | https://xxx.feishu.cn/docx/xxx | `已配置` |
+| 测试用例库 | https://xxx.feishu.cn/base/xxx | `已配置` |
 ```
