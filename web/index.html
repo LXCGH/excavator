@@ -116,6 +116,15 @@
             <option value="6">6 人</option>
           </select>
         </label>
+        <label class="draw-field">
+          每人出题次数
+          <select id="draw-rounds-per-player-select">
+            <option value="1">1 次</option>
+            <option value="2" selected>2 次</option>
+            <option value="3">3 次</option>
+            <option value="4">4 次</option>
+          </select>
+        </label>
         <div class="draw-modal-actions">
           <button id="draw-create-submit-btn" type="button">创建并进入房间</button>
         </div>
@@ -136,64 +145,92 @@
         <button id="draw-join-back-btn" type="button" class="secondary-btn draw-modal-close">返回</button>
       </div>
     </div>
+    <div id="draw-identity-form" class="draw-modal hidden">
+      <div class="draw-modal-content">
+        <h2 id="draw-identity-title">设置昵称</h2>
+        <p id="draw-identity-subtitle" class="draw-modal-subtitle">输入这次房间内使用的昵称。</p>
+        <label class="draw-field">
+          我的昵称
+          <input id="draw-player-name-input" type="text" maxlength="12" placeholder="输入昵称" autocomplete="off" />
+        </label>
+        <div class="draw-modal-actions">
+          <button id="draw-identity-submit-btn" type="button">确认</button>
+        </div>
+        <button id="draw-identity-back-btn" type="button" class="secondary-btn draw-modal-close">返回</button>
+      </div>
+    </div>
     <div id="draw-guess-layer" class="hidden">
       <div class="draw-guess-shell">
         <aside class="draw-sidebar">
-          <!-- 房间视图：仅显示房间卡片 -->
           <div class="draw-card draw-room-card">
             <div class="draw-card-head">
               <h3 id="draw-room-title">房间 未加入</h3>
               <span id="draw-player-count">0 人</span>
+            </div>
+            <div class="draw-current-drawer-block">
+              <span class="draw-current-drawer-label">当前作画</span>
+              <strong id="draw-current-drawer-name">等待中</strong>
+              <p id="draw-stage-text" class="draw-stage-text">先创建或加入房间，再等待房主开始游戏。</p>
+            </div>
+            <div class="draw-stats">
+              <div class="draw-stat draw-stat-wide">
+                <span>回合进度</span>
+                <strong id="draw-round-display">0 / 0</strong>
+                <small id="draw-round-rule">每人 2 次</small>
+              </div>
+              <div class="draw-stat">
+                <span>我的得分</span>
+                <strong id="draw-score-display">0</strong>
+              </div>
+              <div class="draw-stat">
+                <span>倒计时</span>
+                <strong id="draw-timer-display">75</strong>
+              </div>
             </div>
             <div class="draw-room-meta-row">
               <span id="draw-room-code-display" class="draw-room-code">—</span>
               <span class="draw-room-code-hint">房间码（分享给好友）</span>
             </div>
             <div id="draw-room-avatar-slots" class="draw-avatar-slots"></div>
+            <div class="draw-scoreboard">
+              <div class="draw-scoreboard-head">
+                <h4>本局积分</h4>
+                <span>实时更新</span>
+              </div>
+              <div id="draw-scoreboard-list" class="draw-scoreboard-list"></div>
+            </div>
             <div class="draw-room-actions-simple">
               <button id="draw-ready-btn" type="button" class="secondary-btn">准备</button>
               <button id="draw-new-round-btn" type="button" disabled>开始游戏</button>
               <button id="draw-leave-room-btn" type="button" class="secondary-btn hidden">离开房间</button>
             </div>
           </div>
-          <!-- 游戏视图：以下内容仅在游戏中显示 -->
-          <div class="draw-card draw-game-header hidden" id="draw-game-header">
-            <div class="draw-card-head">
-              <div>
-                <p class="mode-eyebrow">多人实时模式</p>
-                <h2>你画我猜</h2>
-              </div>
-            </div>
-            <p id="draw-stage-text" class="draw-stage-text">准备开始新回合</p>
-            <div class="draw-stats">
-              <div class="draw-stat">
-                <span>回合</span>
-                <strong id="draw-round-display">0</strong>
-              </div>
-              <div class="draw-stat">
-                <span>得分</span>
-                <strong id="draw-score-display">0</strong>
-              </div>
-              <div class="draw-stat">
-                <span>时间</span>
-                <strong id="draw-timer-display">75</strong>
-              </div>
-            </div>
-          </div>
           <div class="draw-card draw-word-card hidden" id="draw-word-card">
-            <p id="draw-word-caption">先创建或加入房间，再等待房主开始新回合。</p>
+            <p id="draw-word-caption">当前题目</p>
             <h3 id="draw-secret-word">准备好就开画</h3>
-            <p id="draw-hint-text">系统会根据猜错次数逐步放提示。</p>
+            <p id="draw-hint-text">轮到你作画时，会在这里固定显示题目。</p>
             <div class="draw-primary-actions">
-              <button id="draw-begin-btn" type="button" class="hidden">我准备好了</button>
+              <button id="draw-begin-btn" type="button" class="hidden">确认，开始作画</button>
             </div>
           </div>
         </aside>
         <section class="draw-board-panel">
           <div class="draw-play-area">
             <div class="draw-board-stack">
-              <div class="draw-canvas-wrap">
-                <canvas id="draw-canvas"></canvas>
+              <div class="draw-canvas-shell">
+                <div class="draw-canvas-head">
+                  <div>
+                    <p class="draw-canvas-eyebrow">实时画布</p>
+                    <h3>作画区域</h3>
+                  </div>
+                  <div class="draw-canvas-status">
+                    <span id="draw-canvas-role" class="draw-chip">等待开始</span>
+                    <span id="draw-canvas-meta" class="draw-chip draw-chip-soft">房主开始后进入作画</span>
+                  </div>
+                </div>
+                <div class="draw-canvas-wrap">
+                  <canvas id="draw-canvas"></canvas>
+                </div>
               </div>
               <div class="draw-card draw-tools-card hidden" id="draw-tools-card">
                 <div class="draw-toolbar draw-toolbar-bottom">
@@ -232,20 +269,28 @@
               </div>
             </div>
             <div class="draw-guess-panel">
-              <form id="guess-form" class="guess-form">
-                <input id="guess-input" type="text" placeholder="轮到你猜了，输入答案..." autocomplete="off" disabled />
-                <button type="submit">提交猜词</button>
-              </form>
               <div class="guess-feed">
                 <div class="guess-feed-head">
                   <h3>猜词记录</h3>
-                  <span id="draw-guess-count">0 次尝试</span>
+                  <span id="draw-guess-count">还剩 3 次机会</span>
                 </div>
                 <div id="guess-log" class="guess-log"></div>
               </div>
+              <form id="guess-form" class="guess-form">
+                <input id="guess-input" type="text" placeholder="输入你的猜测..." autocomplete="off" disabled />
+                <button type="submit">提交猜词</button>
+              </form>
             </div>
           </div>
         </section>
+      </div>
+      <div id="draw-toast-stack" class="draw-toast-stack" aria-live="polite"></div>
+      <div id="draw-round-result-overlay" class="draw-round-result-overlay hidden" aria-live="polite">
+        <div class="draw-round-result-card">
+          <p class="draw-round-result-badge">Round Clear</p>
+          <h2 id="draw-round-result-title">有人猜对了！</h2>
+          <p id="draw-round-result-subtitle">等待下一位画手出题…</p>
+        </div>
       </div>
       <div id="draw-victory-overlay" class="draw-victory-overlay hidden" aria-live="polite">
         <canvas id="draw-victory-canvas"></canvas>

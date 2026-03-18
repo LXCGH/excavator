@@ -16,10 +16,6 @@ const DRAWER_CORRECT_BONUS_POINTS = 4;
 const MAX_ROOM_PLAYERS = 6;
 const MAX_GUESSES_PER_PLAYER = 3;
 const DEFAULT_ROUNDS_PER_PLAYER = 2;
-const DEFAULT_ARK_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
-const DEFAULT_ARK_MODEL = 'doubao-seed-1-8-251228';
-const HARD_CODED_ARK_API_KEY = '04433a49-2cef-4da6-a8c6-c8bc5e508adf';
-const REMOTE_WORD_TIMEOUT_MS = 8000;
 const WORD_BANK: DrawGuessWordEntry[] = DRAW_GUESS_WORD_BANK;
 
 interface DrawGuessRoomState {
@@ -48,9 +44,6 @@ interface DrawGuessRoomState {
 export class DrawGuessService {
   private readonly rooms = new Map<string, DrawGuessRoomState>();
   private readonly socketRoomIndex = new Map<string, { roomCode: string; playerId: string }>();
-  private readonly remoteWordApiUrl = DEFAULT_ARK_API_URL;
-  private readonly remoteWordApiKey = HARD_CODED_ARK_API_KEY;
-  private readonly remoteWordModel = DEFAULT_ARK_MODEL;
 
   createRoom(
     socketId: string,
@@ -251,6 +244,8 @@ export class DrawGuessService {
     room.logs.push(this.makeLog('guess', `${player.name} 猜题为 ${guess.trim()}`));
 
     if (normalizedGuess === this.normalizeGuess(room.currentWord.word)) {
+      const solvedWord = room.currentWord.word;
+      const drawerName = room.drawerPlayerId ? this.getPlayerName(room, room.drawerPlayerId) : '未知玩家';
       player.score += 10 + Math.max(0, Math.ceil(this.getTimeLeftSeconds(room) / 5));
       const drawer =
         room.drawerPlayerId
@@ -264,6 +259,11 @@ export class DrawGuessService {
       return {
         roomCode: room.code,
         state: this.toSnapshot(room),
+        roundSolved: {
+          answer: solvedWord,
+          guesserName: player.name,
+          drawerName,
+        },
         ...transition,
       };
     }
@@ -605,11 +605,6 @@ export class DrawGuessService {
   }
 
   private async pickNextWord(lastWord: string | null, lastCategory: string | null, usedWords: string[]) {
-    const remoteWord = await this.requestRemoteWord(lastWord, lastCategory, usedWords);
-    if (remoteWord) {
-      return remoteWord;
-    }
-
     return this.pickLocalWord(lastWord, lastCategory, usedWords);
   }
 
@@ -640,102 +635,6 @@ export class DrawGuessService {
     }
 
     return pool[Math.floor(Math.random() * pool.length)];
-  }
-
-  private async requestRemoteWord(
-    lastWord: string | null,
-    lastCategory: string | null,
-    usedWords: string[],
-  ): Promise<DrawGuessWordEntry | null> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REMOTE_WORD_TIMEOUT_MS);
-
-    try {
-      const response = await fetch(this.remoteWordApiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.remoteWordApiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.remoteWordModel,
-          temperature: 1.1,
-          messages: [
-            {
-              role: 'system',
-              content: '你是你画我猜出题器。只返回 JSON，不要解释，不要 markdown。',
-            },
-            {
-              role: 'user',
-              content: [
-                '请生成一个适合你画我猜的中文题目。',
-                '严格返回 JSON，格式为 {"word":"苹果","category":"水果"}。',
-                'word 必须只有两个汉字，category 用 2 到 4 个汉字表示类型。',
-                '题目要具体、常见、容易画，不要抽象概念，不要人名地名。',
-                lastWord ? `不要和上一题重复：${lastWord}。` : '',
-                lastCategory ? `尽量不要继续使用这个分类：${lastCategory}。` : '',
-                usedWords.length ? `不要与这些历史题目重复：${usedWords.slice(-20).join('、')}。` : '',
-              ].filter(Boolean).join('\n'),
-            },
-          ],
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        return null;
-      }
-
-      const result = await response.json().catch(() => null);
-      const content = result?.choices?.[0]?.message?.content;
-      return this.parseRemoteWordEntry(content, lastWord, lastCategory, usedWords);
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  private parseRemoteWordEntry(
-    rawContent: unknown,
-    lastWord: string | null,
-    lastCategory: string | null,
-    usedWords: string[],
-  ): DrawGuessWordEntry | null {
-    if (typeof rawContent !== 'string' || !rawContent.trim()) {
-      return null;
-    }
-
-    const content = rawContent.trim();
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)```/i) ?? content.match(/```([\s\S]*?)```/);
-    const jsonText = (jsonMatch?.[1] ?? content).trim();
-
-    let parsed: { word?: unknown; category?: unknown } | null = null;
-    try {
-      parsed = JSON.parse(jsonText);
-    } catch {
-      parsed = { word: content, category: 'AI题目' };
-    }
-
-    const word = typeof parsed?.word === 'string' ? parsed.word.trim() : '';
-    const category = typeof parsed?.category === 'string' ? parsed.category.trim() : 'AI题目';
-
-    if (!/^[\u4e00-\u9fa5]{2}$/.test(word)) {
-      return null;
-    }
-    if (word === lastWord || usedWords.includes(word)) {
-      return null;
-    }
-
-    const normalizedCategory = category.replace(/\s+/g, '').slice(0, 4) || 'AI题目';
-    if (lastCategory && normalizedCategory === lastCategory) {
-      return null;
-    }
-
-    return {
-      word,
-      category: normalizedCategory,
-    };
   }
 
   private getTimeLeftSeconds(room: DrawGuessRoomState) {
@@ -786,24 +685,10 @@ export class DrawGuessService {
 
   private getHintText(room: DrawGuessRoomState) {
     if (!room.currentWord) {
-      return '房主开始游戏后，系统会给出题材和字数提示。';
+      return '房主开始游戏后，系统会给出题材提示。';
     }
 
-    const tips = [
-      `题材：${room.currentWord.category}，共 ${room.currentWord.word.length} 个字。`,
-      `首字提示：${room.currentWord.word.slice(0, 1)}。`,
-      `尾字提示：${room.currentWord.word.slice(-1)}。`,
-    ];
-
-    if (room.guessAttempts >= 4) {
-      return `${tips[0]} ${tips[1]} ${tips[2]}`;
-    }
-
-    if (room.guessAttempts >= 2) {
-      return `${tips[0]} ${tips[1]}`;
-    }
-
-    return tips[0];
+    return `题材：${room.currentWord.category}`;
   }
 
   private generateRoomCode() {

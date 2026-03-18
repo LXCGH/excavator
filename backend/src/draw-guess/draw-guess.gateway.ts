@@ -164,6 +164,9 @@ export class DrawGuessGateway implements OnGatewayConnection, OnGatewayDisconnec
       if ('shouldClearCanvas' in result && result.shouldClearCanvas) {
         this.server.to(result.roomCode).emit('drawGuess:canvasClear');
       }
+      if ('roundSolved' in result && result.roundSolved) {
+        this.server.to(result.roomCode).emit('drawGuess:roundSolved', result.roundSolved);
+      }
       this.server.to(result.roomCode).emit('drawGuess:roomUpdate', result.state);
       if ('drawerSocketId' in result && 'secretWord' in result && result.drawerSocketId && result.secretWord) {
         this.server.to(result.drawerSocketId).emit('drawGuess:secretWord', result.secretWord);

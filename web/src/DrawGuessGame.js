@@ -1,5 +1,8 @@
 import { io } from 'socket.io-client';
 
+const DRAW_GUESS_NICKNAME_KEY = 'excavator.drawGuess.nickname';
+const MAX_GUESSES_PER_PLAYER = 3;
+
 const getSocketUrl = () => {
   const configured = import.meta.env.VITE_API_BASE_URL?.trim();
   if (configured) return configured.replace(/\/$/, '');
@@ -19,8 +22,13 @@ export class DrawGuessGame {
     this.guessCount = document.getElementById('draw-guess-count');
     this.stageText = document.getElementById('draw-stage-text');
     this.roundDisplay = document.getElementById('draw-round-display');
+    this.roundRule = document.getElementById('draw-round-rule');
     this.scoreDisplay = document.getElementById('draw-score-display');
     this.timerDisplay = document.getElementById('draw-timer-display');
+    this.currentDrawerName = document.getElementById('draw-current-drawer-name');
+    this.scoreboardList = document.getElementById('draw-scoreboard-list');
+    this.canvasRole = document.getElementById('draw-canvas-role');
+    this.canvasMeta = document.getElementById('draw-canvas-meta');
     this.wordCaption = document.getElementById('draw-word-caption');
     this.secretWord = document.getElementById('draw-secret-word');
     this.hintText = document.getElementById('draw-hint-text');
@@ -49,30 +57,43 @@ export class DrawGuessGame {
     this.victoryTitle = document.getElementById('draw-victory-title');
     this.victorySubtitle = document.getElementById('draw-victory-subtitle');
     this.victoryCtx = this.victoryCanvas?.getContext('2d') ?? null;
+    this.roundResultOverlay = document.getElementById('draw-round-result-overlay');
+    this.roundResultTitle = document.getElementById('draw-round-result-title');
+    this.roundResultSubtitle = document.getElementById('draw-round-result-subtitle');
 
     this.modal = document.getElementById('draw-guess-modal');
     this.createForm = document.getElementById('draw-create-form');
     this.joinForm = document.getElementById('draw-join-form');
+    this.identityForm = document.getElementById('draw-identity-form');
+    this.identityTitle = document.getElementById('draw-identity-title');
+    this.identitySubtitle = document.getElementById('draw-identity-subtitle');
+    this.playerNameInput = document.getElementById('draw-player-name-input');
     this.roomList = document.getElementById('draw-room-list');
+    this.toastStack = document.getElementById('draw-toast-stack');
 
     this.socket = null;
     this.roomState = null;
     this.roomCode = null;
     this.playerId = null;
     this.secretWordPayload = null;
+    this.pendingRoomAction = null;
+    this.pendingIdentityAction = null;
+    this.preferredNickname = this.loadPreferredNickname();
     this.brushColor = '#0f172a';
     this.brushSize = Number(this.brushSizeInput?.value ?? 6);
     this.eraserSize = Number(this.eraserSizeInput?.value ?? 18);
     this.isErasing = false;
     this.isDrawing = false;
     this.currentViewMode = null;
+    this.domEventsBound = false;
     this.modalEventsBound = false;
-    this.pendingCreate = false;
-    this.pendingJoinCode = null;
     this.activeStrokeId = null;
+    this.lastSelfGuessCount = 0;
+    this.wordCardMode = 'hidden';
     this.victoryParticles = [];
     this.victoryAnimationFrame = null;
     this.victoryHideTimer = null;
+    this.roundResultHideTimer = null;
     this.victoryLastTickAt = 0;
     this.victoryLastBurstAt = 0;
     this.victoryEndAt = 0;
@@ -98,7 +119,11 @@ export class DrawGuessGame {
         this.emit('drawGuess:roundStart');
       }
     };
-    this.handleBeginRound = () => this.emit('drawGuess:roundBegin');
+    this.handleBeginRound = () => {
+      this.wordCardMode = 'docked';
+      this.syncWordCardState();
+      this.emit('drawGuess:roundBegin');
+    };
     this.handleUndoCanvas = () => this.emit('drawGuess:canvasUndo');
     this.handleClearCanvas = () => this.emit('drawGuess:canvasClear');
     this.handleBrushSizeChange = (event) => {
@@ -124,8 +149,9 @@ export class DrawGuessGame {
     this.modal.classList.remove('hidden');
     this.createForm.classList.add('hidden');
     this.joinForm.classList.add('hidden');
-    this.pendingCreate = false;
-    this.pendingJoinCode = null;
+    this.identityForm.classList.add('hidden');
+    this.pendingRoomAction = null;
+    this.pendingIdentityAction = null;
     this.bindModalEvents();
     this.setModalConnectionState(Boolean(this.socket?.connected));
     this.connectSocket();
@@ -139,54 +165,122 @@ export class DrawGuessGame {
       this.modal.classList.add('hidden');
       this.createForm.classList.add('hidden');
       this.joinForm.classList.add('hidden');
+      this.identityForm.classList.add('hidden');
     };
 
-    document.getElementById('draw-modal-close-btn')?.addEventListener('click', () => {
-      closeModal();
-      this.layer.classList.add('hidden');
-      window.dispatchEvent(new CustomEvent('drawGuess:cancel'));
-    });
+    const modalCloseBtn = document.getElementById('draw-modal-close-btn');
+    if (modalCloseBtn) {
+      modalCloseBtn.onclick = () => {
+        closeModal();
+        this.layer.classList.add('hidden');
+        window.dispatchEvent(new CustomEvent('drawGuess:cancel'));
+      };
+    }
 
-    document.getElementById('draw-modal-create-btn')?.addEventListener('click', () => {
-      this.modal.classList.add('hidden');
-      this.createForm.classList.remove('hidden');
-    });
+    const createBtn = document.getElementById('draw-modal-create-btn');
+    if (createBtn) {
+      createBtn.onclick = () => {
+        this.modal.classList.add('hidden');
+        this.createForm.classList.remove('hidden');
+      };
+    }
 
-    document.getElementById('draw-modal-join-btn')?.addEventListener('click', () => {
-      this.modal.classList.add('hidden');
-      this.joinForm.classList.remove('hidden');
-      const codeInput = document.getElementById('draw-join-code-input');
-      if (codeInput) codeInput.value = '';
-      this.fetchRoomList();
-    });
+    const joinBtn = document.getElementById('draw-modal-join-btn');
+    if (joinBtn) {
+      joinBtn.onclick = () => {
+        this.modal.classList.add('hidden');
+        this.joinForm.classList.remove('hidden');
+        const codeInput = document.getElementById('draw-join-code-input');
+        if (codeInput) codeInput.value = '';
+        this.fetchRoomList();
+      };
+    }
 
-    document.getElementById('draw-create-back-btn')?.addEventListener('click', () => {
-      this.createForm.classList.add('hidden');
-      this.modal.classList.remove('hidden');
-    });
+    const createBackBtn = document.getElementById('draw-create-back-btn');
+    if (createBackBtn) {
+      createBackBtn.onclick = () => {
+        this.createForm.classList.add('hidden');
+        this.modal.classList.remove('hidden');
+      };
+    }
 
-    document.getElementById('draw-create-submit-btn')?.addEventListener('click', () => {
-      this.doCreateRoom();
-    });
+    const createSubmitBtn = document.getElementById('draw-create-submit-btn');
+    if (createSubmitBtn) {
+      createSubmitBtn.onclick = () => {
+        const maxPlayers = Number(document.getElementById('draw-max-players-select')?.value ?? 6);
+        const roundsPerPlayer = Number(document.getElementById('draw-rounds-per-player-select')?.value ?? 2);
+        this.requestNickname({
+          type: 'create',
+          maxPlayers,
+          roundsPerPlayer,
+        });
+      };
+    }
 
-    document.getElementById('draw-join-back-btn')?.addEventListener('click', () => {
-      this.joinForm.classList.add('hidden');
-      this.modal.classList.remove('hidden');
-    });
+    const joinBackBtn = document.getElementById('draw-join-back-btn');
+    if (joinBackBtn) {
+      joinBackBtn.onclick = () => {
+        this.joinForm.classList.add('hidden');
+        this.modal.classList.remove('hidden');
+      };
+    }
 
-    document.getElementById('draw-join-refresh-btn')?.addEventListener('click', () => {
-      this.fetchRoomList();
-    });
+    const joinRefreshBtn = document.getElementById('draw-join-refresh-btn');
+    if (joinRefreshBtn) {
+      joinRefreshBtn.onclick = () => {
+        this.fetchRoomList();
+      };
+    }
 
     const joinCodeInput = document.getElementById('draw-join-code-input');
     const joinByCodeBtn = document.getElementById('draw-join-by-code-btn');
-    joinByCodeBtn?.addEventListener('click', () => {
-      const code = joinCodeInput?.value?.trim().toUpperCase();
-      if (code && code.length >= 4) this.doJoinRoom(code);
-    });
-    joinCodeInput?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') joinByCodeBtn?.click();
-    });
+    if (joinByCodeBtn) {
+      joinByCodeBtn.onclick = () => {
+        const code = joinCodeInput?.value?.trim().toUpperCase();
+        if (code && code.length >= 4) {
+          this.requestNickname({
+            type: 'join',
+            roomCode: code,
+          });
+        }
+      };
+    }
+    if (joinCodeInput) {
+      joinCodeInput.onkeydown = (e) => {
+        if (e.key === 'Enter') joinByCodeBtn?.click();
+      };
+    }
+
+    const identitySubmitBtn = document.getElementById('draw-identity-submit-btn');
+    if (identitySubmitBtn) {
+      identitySubmitBtn.onclick = () => {
+        this.submitNickname();
+      };
+    }
+
+    const identityBackBtn = document.getElementById('draw-identity-back-btn');
+    if (identityBackBtn) {
+      identityBackBtn.onclick = () => {
+        this.identityForm.classList.add('hidden');
+        if (this.pendingIdentityAction?.type === 'create') {
+          this.createForm.classList.remove('hidden');
+        } else if (this.pendingIdentityAction?.type === 'join') {
+          this.joinForm.classList.remove('hidden');
+        } else {
+          this.modal.classList.remove('hidden');
+        }
+        this.pendingIdentityAction = null;
+      };
+    }
+
+    if (this.playerNameInput) {
+      this.playerNameInput.onkeydown = (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          this.submitNickname();
+        }
+      };
+    }
   }
 
   fetchRoomList() {
@@ -237,29 +331,77 @@ export class DrawGuessGame {
     this.roomList.appendChild(loading);
   }
 
-  doCreateRoom() {
-    if (!this.socket?.connected) {
-      this.pendingCreate = true;
-      this.setModalConnectionState(false);
-      this.socket?.connect();
-      return;
-    }
-    const maxPlayers = Number(document.getElementById('draw-max-players-select')?.value ?? 6);
+  requestNickname(action) {
+    this.pendingIdentityAction = action;
+    this.modal.classList.add('hidden');
     this.createForm.classList.add('hidden');
-    this.enterRoomView();
-    this.emit('drawGuess:roomCreate', { playerName: '', maxPlayers });
+    this.joinForm.classList.add('hidden');
+    this.identityForm.classList.remove('hidden');
+    if (this.identityTitle) {
+      this.identityTitle.textContent = action.type === 'create' ? '创建房间前设置昵称' : '加入房间前设置昵称';
+    }
+    if (this.identitySubtitle) {
+      this.identitySubtitle.textContent = action.type === 'create'
+        ? '这个昵称会在后续房间与猜词记录中持续使用。'
+        : '输入你进入房间后要展示给其他玩家的昵称。';
+    }
+    if (this.playerNameInput) {
+      this.playerNameInput.value = this.preferredNickname || this.session?.nickname || '';
+      this.playerNameInput.focus();
+      this.playerNameInput.select();
+    }
   }
 
-  doJoinRoom(roomCode) {
+  submitNickname() {
+    const nickname = this.playerNameInput?.value?.trim().slice(0, 12);
+    if (!nickname) {
+      this.showToast('请先输入昵称。', 'warning');
+      this.playerNameInput?.focus();
+      return;
+    }
+
+    this.preferredNickname = nickname;
+    localStorage.setItem(DRAW_GUESS_NICKNAME_KEY, nickname);
+
+    if (!this.pendingIdentityAction) {
+      return;
+    }
+
+    const action = {
+      ...this.pendingIdentityAction,
+      playerName: nickname,
+    };
+    this.pendingIdentityAction = null;
+    this.performRoomAction(action);
+  }
+
+  performRoomAction(action) {
     if (!this.socket?.connected) {
-      this.pendingJoinCode = roomCode;
+      this.pendingRoomAction = action;
       this.setModalConnectionState(false);
       this.socket?.connect();
       return;
     }
+
+    this.pendingRoomAction = null;
+    this.identityForm.classList.add('hidden');
+    this.createForm.classList.add('hidden');
     this.joinForm.classList.add('hidden');
     this.enterRoomView();
-    this.emit('drawGuess:roomJoin', { roomCode, playerName: '' });
+
+    if (action.type === 'create') {
+      this.emit('drawGuess:roomCreate', {
+        playerName: action.playerName,
+        maxPlayers: action.maxPlayers,
+        roundsPerPlayer: action.roundsPerPlayer,
+      });
+      return;
+    }
+
+    this.emit('drawGuess:roomJoin', {
+      roomCode: action.roomCode,
+      playerName: action.playerName,
+    });
   }
 
   enterRoomView() {
@@ -270,6 +412,8 @@ export class DrawGuessGame {
   }
 
   bindDomEvents() {
+    if (this.domEventsBound) return;
+    this.domEventsBound = true;
     window.addEventListener('resize', this.handleResize);
     this.guessForm.addEventListener('submit', this.handleGuessSubmit);
     this.canvas.addEventListener('pointerdown', this.handleCanvasPointerDown);
@@ -318,14 +462,10 @@ export class DrawGuessGame {
       if (this.joinForm && !this.joinForm.classList.contains('hidden')) {
         this.fetchRoomList();
       }
-      if (this.pendingCreate) {
-        this.pendingCreate = false;
-        this.doCreateRoom();
-      }
-      if (this.pendingJoinCode) {
-        const code = this.pendingJoinCode;
-        this.pendingJoinCode = null;
-        this.doJoinRoom(code);
+      if (this.pendingRoomAction) {
+        const action = this.pendingRoomAction;
+        this.pendingRoomAction = null;
+        this.performRoomAction(action);
       }
     });
 
@@ -361,6 +501,7 @@ export class DrawGuessGame {
 
     this.socket.on('drawGuess:secretWord', (payload) => {
       this.secretWordPayload = payload;
+      this.wordCardMode = 'focus';
       this.renderRoomState();
     });
 
@@ -377,8 +518,15 @@ export class DrawGuessGame {
       this.replayCanvasEvents(payload?.canvasEvents ?? []);
     });
 
+    this.socket.on('drawGuess:roundSolved', (payload) => {
+      const guesserName = payload?.guesserName ?? '有玩家';
+      const drawerName = payload?.drawerName ?? '未知画手';
+      const answer = payload?.answer ?? '未知答案';
+      this.showRoundResult(`${guesserName} 猜对了`, `画手是 ${drawerName}，答案是“${answer}”`);
+    });
+
     this.socket.on('drawGuess:error', (payload) => {
-      this.hintText.textContent = payload?.message ?? '操作失败，请稍后重试。';
+      this.showToast(payload?.message ?? '操作失败，请稍后重试。', 'error');
     });
 
     this.socket.connect();
@@ -423,10 +571,18 @@ export class DrawGuessGame {
       const joinBtn = item.querySelector('button');
       joinBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.doJoinRoom(room.roomCode);
+        this.requestNickname({
+          type: 'join',
+          roomCode: room.roomCode,
+        });
       });
       item.addEventListener('click', (e) => {
-        if (!e.target.closest('button')) this.doJoinRoom(room.roomCode);
+        if (!e.target.closest('button')) {
+          this.requestNickname({
+            type: 'join',
+            roomCode: room.roomCode,
+          });
+        }
       });
       this.roomList.appendChild(item);
     });
@@ -438,6 +594,8 @@ export class DrawGuessGame {
     this.roomCode = null;
     this.playerId = null;
     this.secretWordPayload = null;
+    this.lastSelfGuessCount = 0;
+    this.wordCardMode = 'hidden';
     if (this.roomCodeDisplay) {
       this.roomCodeDisplay.textContent = '—';
       this.roomCodeDisplay.classList.remove('draw-room-code-copy');
@@ -445,6 +603,10 @@ export class DrawGuessGame {
     }
     if (this.roomTitle) this.roomTitle.textContent = '房间 未加入';
     if (this.playerCount) this.playerCount.textContent = '0 人';
+    if (this.currentDrawerName) this.currentDrawerName.textContent = '等待中';
+    if (this.scoreboardList) this.scoreboardList.innerHTML = '';
+    if (this.canvasRole) this.canvasRole.textContent = '等待开始';
+    if (this.canvasMeta) this.canvasMeta.textContent = '房主开始后进入作画';
     if (this.avatarSlots) this.avatarSlots.innerHTML = '';
     this.setGuessEnabled(false);
     if (this.newRoundBtn) {
@@ -455,20 +617,24 @@ export class DrawGuessGame {
     if (this.readyBtn) this.readyBtn.classList.remove('hidden');
     if (this.leaveRoomBtn) this.leaveRoomBtn.classList.add('hidden');
     if (this.stageText) this.stageText.textContent = '先创建或加入房间，再等待房主开始游戏。';
-    if (this.wordCaption) this.wordCaption.textContent = '游戏开始后会按顺序轮流作画。';
+    if (this.wordCaption) this.wordCaption.textContent = '当前题目';
     if (this.secretWord) this.secretWord.textContent = '准备好就开画';
-    if (this.hintText) this.hintText.textContent = '系统会根据猜错次数逐步放提示。';
-    if (this.roundDisplay) this.roundDisplay.textContent = '0';
+    if (this.hintText) this.hintText.textContent = '轮到你作画时，会在这里固定显示题目。';
+    if (this.roundDisplay) this.roundDisplay.textContent = '0 / 0';
+    if (this.roundRule) this.roundRule.textContent = '每人 2 次';
     if (this.scoreDisplay) this.scoreDisplay.textContent = '0';
     if (this.timerDisplay) this.timerDisplay.textContent = '75';
-    if (this.guessCount) this.guessCount.textContent = '0 次尝试';
+    if (this.guessCount) this.guessCount.textContent = `还剩 ${MAX_GUESSES_PER_PLAYER} 次机会`;
     if (this.guessLog) this.guessLog.innerHTML = '';
     if (this.undoBtn) this.undoBtn.disabled = true;
     this.hideVictoryEffect(true);
+    this.hideRoundResult(true);
     this.setEraserMode(false);
+    this.syncWordCardState();
   }
 
   applyRoomState(state) {
+    const previousSelfGuessCount = this.getSelfPlayer()?.guessCount ?? this.lastSelfGuessCount ?? 0;
     this.roomState = state;
     this.roomCode = state?.roomCode ?? this.roomCode;
     if (!state?.isGameOver) {
@@ -476,7 +642,20 @@ export class DrawGuessGame {
     }
     if (state?.phase === 'finished') {
       this.secretWordPayload = null;
+      this.wordCardMode = 'docked';
     }
+    if (state?.phase === 'waiting' || state?.isGameOver) {
+      this.wordCardMode = 'hidden';
+    }
+    const nextSelfGuessCount = state?.players?.find((player) => player.id === this.playerId)?.guessCount ?? 0;
+    if (nextSelfGuessCount > previousSelfGuessCount) {
+      const remaining = Math.max(0, MAX_GUESSES_PER_PLAYER - nextSelfGuessCount);
+      this.showToast(
+        remaining > 0 ? `本回合还剩 ${remaining} 次猜词机会。` : '本回合的 3 次猜词机会已经用完。',
+        remaining > 0 ? 'info' : 'warning',
+      );
+    }
+    this.lastSelfGuessCount = nextSelfGuessCount;
     this.renderRoomState();
   }
 
@@ -510,10 +689,12 @@ export class DrawGuessGame {
     }
     if (this.roomTitle) this.roomTitle.textContent = `房间 ${this.roomState.roomCode}`;
     if (this.playerCount) this.playerCount.textContent = `${this.roomState.players.length}/${this.roomState.maxPlayers} 人`;
-    if (this.roundDisplay) this.roundDisplay.textContent = String(this.roomState.round);
+    if (this.currentDrawerName) this.currentDrawerName.textContent = this.roomState.drawerPlayerName ?? '等待中';
+    if (this.roundDisplay) this.roundDisplay.textContent = `${this.roomState.round} / ${this.roomState.maxRounds}`;
+    if (this.roundRule) this.roundRule.textContent = `每人 ${this.roomState.roundsPerPlayer} 次`;
     this.scoreDisplay.textContent = String(selfPlayer?.score ?? 0);
     this.timerDisplay.textContent = String(this.roomState.timeLeft);
-    this.guessCount.textContent = `${this.roomState.guessAttempts} 次尝试`;
+    this.guessCount.textContent = `还剩 ${Math.max(0, MAX_GUESSES_PER_PLAYER - (selfPlayer?.guessCount ?? 0))} 次机会`;
     this.leaveRoomBtn.classList.remove('hidden');
     // 准备 与 开始游戏 互斥：房主未准备时显示准备，准备后显示开始游戏；非房主只显示准备
     // 开始游戏 需至少 2 人且全员准备后才可用
@@ -557,7 +738,7 @@ export class DrawGuessGame {
     });
     this.brushSizeInput.disabled = !canDraw;
     this.eraserSizeInput.disabled = !canDraw;
-    this.setGuessEnabled(canGuess);
+    this.setGuessEnabled(canGuess && (selfPlayer?.guessCount ?? 0) < MAX_GUESSES_PER_PLAYER);
     this.syncToolUi();
 
     if (this.avatarSlots) {
@@ -575,10 +756,26 @@ export class DrawGuessGame {
         slot.innerHTML = `
           <div class="avatar-placeholder">${player ? player.name.slice(0, 1) : '?'}</div>
           <span class="avatar-name">${player?.name ?? `玩家${i + 1}`}</span>
+          <span class="avatar-score">${player ? `${player.score} 分` : '未加入'}</span>
           <span class="avatar-status">${roleText.join(' · ') || '空位'}</span>
         `;
         this.avatarSlots.appendChild(slot);
       }
+    }
+
+    if (this.scoreboardList) {
+      const rankedPlayers = [...this.roomState.players].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+      this.scoreboardList.innerHTML = '';
+      rankedPlayers.forEach((player, index) => {
+        const item = document.createElement('div');
+        item.className = `draw-score-item${player.id === this.playerId ? ' is-self' : ''}`;
+        item.innerHTML = `
+          <span class="draw-score-rank">#${index + 1}</span>
+          <span class="draw-score-name">${player.name}</span>
+          <strong class="draw-score-value">${player.score}</strong>
+        `;
+        this.scoreboardList.appendChild(item);
+      });
     }
 
     this.renderLogs(this.roomState.logs);
@@ -589,38 +786,47 @@ export class DrawGuessGame {
           this.stageText.textContent = selfPlayer?.isReady
             ? '你已准备，等待其他玩家加入房间。'
             : '先点击准备，再等待其他玩家加入。';
-          this.wordCaption.textContent = '房主建房成功';
+          this.wordCaption.textContent = '当前题目';
           this.secretWord.textContent = '等待玩家加入';
           this.hintText.textContent = '至少需要 2 名玩家，其他玩家可以通过房间码加入。';
+          if (this.canvasRole) this.canvasRole.textContent = '等待玩家';
+          if (this.canvasMeta) this.canvasMeta.textContent = '至少两人才能开始作画';
         } else if (!this.roomState.allPlayersReady) {
           this.stageText.textContent = selfPlayer?.isReady
             ? '你已准备，等待当前房间里的其他玩家准备。'
             : '先点击准备，等房主开始。';
-          this.wordCaption.textContent = '等待房间内玩家准备';
+          this.wordCaption.textContent = '当前题目';
           this.secretWord.textContent = '等待全员准备';
           this.hintText.textContent = '当前房间里的玩家全部准备完成后，房主就可以开始对战。';
+          if (this.canvasRole) this.canvasRole.textContent = '等待准备';
+          if (this.canvasMeta) this.canvasMeta.textContent = '全员准备后开始第一回合';
         } else {
           this.stageText.textContent = isHost
             ? '当前房间里的玩家都已准备完成，你可以开始游戏。'
             : '所有人都已准备，等待房主开始游戏。';
-          this.wordCaption.textContent = '准备完成';
+          this.wordCaption.textContent = '当前题目';
           this.secretWord.textContent = '等待房主开始';
           this.hintText.textContent = '开始后会按进入房间的顺序轮流担任画手。';
+          if (this.canvasRole) this.canvasRole.textContent = '即将开始';
+          if (this.canvasMeta) this.canvasMeta.textContent = '房主点击开始后进入作画阶段';
         }
       } else {
         this.stageText.textContent = this.roomState.players.length < 2
           ? '当前人数不足 2 人，对战已暂停。'
           : '等待当前画手准备开始。';
-        this.wordCaption.textContent = '等待继续';
+        this.wordCaption.textContent = '当前题目';
         this.secretWord.textContent = this.roomState.players.length < 2 ? '等待玩家恢复人数' : '等待画手准备';
-        this.hintText.textContent = '下一位画手点击“我准备好了”后就会开始作画。';
+        this.hintText.textContent = '下一位画手点击“确认，开始作画”后就会开始本回合作画。';
+        if (this.canvasRole) this.canvasRole.textContent = '回合待命';
+        if (this.canvasMeta) this.canvasMeta.textContent = '等待下一位画手确认题目';
       }
+      this.syncWordCardState();
       return;
     }
 
     if (this.roomState.phase === 'memorize') {
       this.stageText.textContent = isDrawer
-        ? '你是本轮画手，准备好后点击“我准备好了”。'
+        ? '轮到你作画了，确认题目后立即开始。'
         : `本轮画手是 ${this.roomState.drawerPlayerName}，等待 TA 准备作画。`;
       this.wordCaption.textContent = this.roomState.category
         ? `题材：${this.roomState.category}`
@@ -629,8 +835,11 @@ export class DrawGuessGame {
         ? this.secretWordPayload.word
         : '画手记词中';
       this.hintText.textContent = isDrawer && this.secretWordPayload
-        ? `请记住“${this.secretWordPayload.word}”，然后点击“我准备好了”。`
+        ? `记住题目“${this.secretWordPayload.word}”，确认后开始作画。`
         : '等待画手记词后正式开始。';
+      if (this.canvasRole) this.canvasRole.textContent = isDrawer ? '轮到你画' : '等待画手';
+      if (this.canvasMeta) this.canvasMeta.textContent = isDrawer ? '确认题目后即可落笔' : `${this.roomState.drawerPlayerName} 正在准备题目`;
+      this.syncWordCardState();
       return;
     }
 
@@ -645,6 +854,16 @@ export class DrawGuessGame {
         ? this.secretWordPayload.word
         : '● ● ●';
       this.hintText.textContent = this.roomState.hintText;
+      if (isDrawer && this.secretWordPayload) {
+        this.wordCardMode = 'docked';
+      }
+      if (this.canvasRole) this.canvasRole.textContent = isDrawer ? '正在作画' : '正在猜词';
+      if (this.canvasMeta) {
+        this.canvasMeta.textContent = isDrawer
+          ? '用线条和颜色把题目画出来'
+          : `品类提示：${this.roomState.category ?? '待定'}`;
+      }
+      this.syncWordCardState();
       return;
     }
 
@@ -659,23 +878,30 @@ export class DrawGuessGame {
       this.hintText.textContent = isHost
         ? '点击“再来一局”可重置对战并重新准备。'
         : '等待房主重置后开始下一局。';
+      if (this.canvasRole) this.canvasRole.textContent = '对局结束';
+      if (this.canvasMeta) this.canvasMeta.textContent = '查看积分榜，等待下一局';
+      this.syncWordCardState();
       return;
     }
 
     this.stageText.textContent = '本轮已结束，正在切换下一位画手。';
     this.wordCaption.textContent = '正确答案';
     this.secretWord.textContent = this.roomState.revealedAnswer ?? '答案已揭晓';
-    this.hintText.textContent = '下一位画手点击“我准备好了”后开始下一回合。';
+    this.hintText.textContent = '下一位画手点击“确认，开始作画”后开始下一回合。';
+    if (this.canvasRole) this.canvasRole.textContent = '回合切换';
+    if (this.canvasMeta) this.canvasMeta.textContent = '下一位画手即将接管画布';
+    this.syncWordCardState();
   }
 
   renderLogs(logs) {
     this.guessLog.innerHTML = '';
-    [...logs].reverse().forEach((entry) => {
+    logs.forEach((entry) => {
       const item = document.createElement('div');
       item.className = `guess-item guess-item-${entry.type}`;
       item.textContent = entry.text;
       this.guessLog.appendChild(item);
     });
+    this.guessLog.scrollTop = this.guessLog.scrollHeight;
   }
 
   showVictoryEffect(winnerNames, winnerScore, round) {
@@ -720,6 +946,42 @@ export class DrawGuessGame {
     if (resetKey) {
       this.lastVictoryKey = null;
     }
+  }
+
+  showRoundResult(title, subtitle) {
+    if (!this.roundResultOverlay || !this.roundResultTitle || !this.roundResultSubtitle) {
+      return;
+    }
+
+    if (this.roundResultHideTimer) {
+      clearTimeout(this.roundResultHideTimer);
+    }
+
+    this.roundResultTitle.textContent = title;
+    this.roundResultSubtitle.textContent = subtitle;
+    this.roundResultOverlay.classList.remove('hidden');
+    this.roundResultOverlay.classList.remove('is-active');
+    void this.roundResultOverlay.offsetWidth;
+    this.roundResultOverlay.classList.add('is-active');
+
+    this.roundResultHideTimer = setTimeout(() => {
+      this.hideRoundResult();
+    }, 2200);
+  }
+
+  hideRoundResult(force = false) {
+    if (this.roundResultHideTimer) {
+      clearTimeout(this.roundResultHideTimer);
+      this.roundResultHideTimer = null;
+    }
+    this.roundResultOverlay?.classList.remove('is-active');
+    if (force) {
+      this.roundResultOverlay?.classList.add('hidden');
+      return;
+    }
+    setTimeout(() => {
+      this.roundResultOverlay?.classList.add('hidden');
+    }, 200);
   }
 
   resizeVictoryCanvas() {
@@ -845,6 +1107,7 @@ export class DrawGuessGame {
     this.modal.classList.remove('hidden');
     this.createForm.classList.add('hidden');
     this.joinForm.classList.add('hidden');
+    this.identityForm.classList.add('hidden');
     this.setModalConnectionState(Boolean(this.socket?.connected));
     if (!this.socket?.connected) {
       this.socket?.connect();
@@ -870,6 +1133,38 @@ export class DrawGuessGame {
     }
   }
 
+  loadPreferredNickname() {
+    return localStorage.getItem(DRAW_GUESS_NICKNAME_KEY)?.trim() || '';
+  }
+
+  syncWordCardState() {
+    if (!this.wordCaption || !this.secretWord || !this.hintText) {
+      return;
+    }
+
+    const showCard = this.currentViewMode === 'battle' && this.wordCardMode !== 'hidden';
+    this.wordCaption.parentElement?.classList.toggle('is-visible', showCard);
+    this.wordCaption.parentElement?.classList.toggle('is-focus', showCard && this.wordCardMode === 'focus');
+    this.wordCaption.parentElement?.classList.toggle('is-docked', showCard && this.wordCardMode === 'docked');
+  }
+
+  showToast(message, tone = 'info') {
+    if (!this.toastStack || !message) {
+      return;
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `draw-toast draw-toast-${tone}`;
+    toast.textContent = message;
+    this.toastStack.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('is-visible'));
+
+    window.setTimeout(() => {
+      toast.classList.remove('is-visible');
+      window.setTimeout(() => toast.remove(), 220);
+    }, 2200);
+  }
+
   emit(eventName, payload = undefined) {
     if (!this.socket) {
       return;
@@ -880,6 +1175,7 @@ export class DrawGuessGame {
 
   setGuessEnabled(enabled) {
     this.guessInput.disabled = !enabled;
+    this.guessInput.placeholder = enabled ? '输入你的猜测...' : '本回合暂时不能猜词';
     if (!enabled) {
       this.guessInput.value = '';
     }
@@ -1044,16 +1340,15 @@ export class DrawGuessGame {
     this.currentViewMode = mode;
     this.shell.classList.toggle('is-room-view', mode === 'room');
     this.shell.classList.toggle('is-battle-view', mode === 'battle');
-    const gameHeader = document.getElementById('draw-game-header');
     const wordCard = document.getElementById('draw-word-card');
     const toolsCard = document.getElementById('draw-tools-card');
     const showGame = mode === 'battle';
-    if (gameHeader) gameHeader.classList.toggle('hidden', !showGame);
     if (wordCard) wordCard.classList.toggle('hidden', !showGame);
     if (toolsCard) toolsCard.classList.toggle('hidden', !showGame);
     if (mode === 'battle' && changed) {
       requestAnimationFrame(() => this.resizeCanvas());
     }
+    this.syncWordCardState();
   }
 
   drawStroke(stroke) {
@@ -1104,6 +1399,7 @@ export class DrawGuessGame {
     this.eraserSizeInput?.removeEventListener('input', this.handleEraserSizeChange);
     this.leaveRoomBtn?.removeEventListener('click', this.handleLeaveRoom);
     this.readyBtn?.removeEventListener('click', this.handleReadyToggle);
+    this.roomCodeDisplay?.removeEventListener('click', this.handleCopyRoomCode);
 
     this.colorButtons.forEach((button) => {
       const handler = this.colorButtonHandlers.get(button);
@@ -1113,6 +1409,8 @@ export class DrawGuessGame {
     });
 
     this.hideVictoryEffect(true);
+    this.hideRoundResult(true);
+    this.domEventsBound = false;
 
     if (this.socket) {
       this.socket.disconnect();

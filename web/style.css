@@ -783,6 +783,14 @@ input:disabled {
   color: #0f172a;
 }
 
+.draw-room-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, rgba(251, 191, 36, 0.18), transparent 32%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.94));
+}
+
 .draw-card h2,
 .draw-card h3,
 .guess-feed h3 {
@@ -815,6 +823,39 @@ input:disabled {
   margin: 14px 0 0;
   color: #334155;
   font-size: 15px;
+}
+
+.draw-current-drawer-block {
+  margin-top: 16px;
+  padding: 18px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #0f172a, #1d4ed8);
+  color: #eff6ff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.draw-current-drawer-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.92);
+}
+
+#draw-current-drawer-name {
+  display: block;
+  margin-top: 10px;
+  font-size: clamp(28px, 3.2vw, 40px);
+  line-height: 1.05;
+  color: #ffffff;
+}
+
+.draw-current-drawer-block .draw-stage-text {
+  margin-top: 10px;
+  color: rgba(226, 232, 240, 0.9);
 }
 
 .draw-field {
@@ -866,6 +907,70 @@ input:disabled {
   letter-spacing: 0.08em;
 }
 
+.draw-scoreboard {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.draw-scoreboard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.draw-scoreboard-head h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.draw-scoreboard-head span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.draw-scoreboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.draw-score-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.95);
+}
+
+.draw-score-item.is-self {
+  background: linear-gradient(135deg, #dbeafe, #e0f2fe);
+}
+
+.draw-score-rank {
+  font-size: 12px;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.draw-score-name {
+  min-width: 0;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.draw-score-value {
+  font-size: 18px;
+  color: #0f172a;
+}
+
 .draw-player-list {
   margin-top: 16px;
   display: flex;
@@ -908,10 +1013,11 @@ input:disabled {
 }
 
 .draw-stat {
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.82);
   border-radius: 14px;
   padding: 12px;
   text-align: center;
+  border: 1px solid rgba(148, 163, 184, 0.22);
 }
 
 .draw-stat span {
@@ -927,10 +1033,68 @@ input:disabled {
   color: #0f172a;
 }
 
+.draw-stat small {
+  display: block;
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.draw-stat-wide {
+  text-align: left;
+}
+
+.avatar-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.16);
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .draw-word-card {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  position: fixed;
+  left: 24px;
+  bottom: 24px;
+  width: min(340px, calc(100vw - 40px));
+  z-index: 22;
+  opacity: 0;
+  transform: translateY(20px) scale(0.96);
+  pointer-events: none;
+  transition: transform 220ms ease, opacity 220ms ease, left 280ms ease, top 280ms ease, width 280ms ease;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 36%),
+    rgba(255, 255, 255, 0.96);
+}
+
+.draw-word-card.is-visible {
+  opacity: 1;
+}
+
+.draw-word-card.is-focus {
+  left: 50%;
+  top: 50%;
+  bottom: auto;
+  width: min(460px, calc(100vw - 40px));
+  transform: translate(-50%, -50%) scale(1);
+  pointer-events: auto;
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.34);
+}
+
+.draw-word-card.is-docked {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
 }
 
 #draw-secret-word {
@@ -958,6 +1122,9 @@ input:disabled {
   flex-direction: column;
   padding: 18px;
   min-height: 0;
+  background:
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.12), transparent 28%),
+    rgba(255, 255, 255, 0.94);
 }
 
 .draw-toolbar {
@@ -1067,20 +1234,78 @@ input:disabled {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
+  height: 100%;
+}
+
+.draw-canvas-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.draw-canvas-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 64, 175, 0.92));
+  color: #eff6ff;
+}
+
+.draw-canvas-head h3 {
+  margin: 2px 0 0;
+  font-size: 22px;
+}
+
+.draw-canvas-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.9);
+}
+
+.draw-canvas-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.draw-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #eff6ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.draw-chip-soft {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(226, 232, 240, 0.92);
 }
 
 .draw-board-stack {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto;
-  align-content: start;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-content: stretch;
   gap: 12px;
+  height: min(100%, calc(100vh - 56px));
 }
 
 .draw-canvas-wrap {
   width: 100%;
-  aspect-ratio: 16 / 10;
+  min-height: 420px;
+  padding: 14px;
   background:
     linear-gradient(0deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
@@ -1089,14 +1314,19 @@ input:disabled {
   border-radius: 18px;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
 }
 
 #draw-canvas {
   display: block;
   width: 100%;
   height: 100%;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.96), rgba(255, 254, 248, 0.98));
   touch-action: none;
   cursor: crosshair;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
 }
 
 #draw-canvas.cursor-brush {
@@ -1118,13 +1348,14 @@ input:disabled {
 .draw-guess-panel {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
+  height: min(100%, calc(100vh - 56px));
 }
 
 .guess-form {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
 }
 
@@ -1177,14 +1408,106 @@ input:disabled {
   color: #1e3a8a;
 }
 
-.guess-item-system {
-  background: #e2e8f0;
-  color: #334155;
+.guess-item-drawer {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #92400e;
+  font-weight: 700;
 }
 
-.guess-item-success {
-  background: #dcfce7;
-  color: #166534;
+.draw-toast-stack {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.draw-toast {
+  min-width: 220px;
+  max-width: min(360px, calc(100vw - 40px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.28);
+  transform: translateY(12px);
+  opacity: 0;
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+
+.draw-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.draw-toast-warning {
+  background: rgba(146, 64, 14, 0.92);
+}
+
+.draw-toast-error {
+  background: rgba(153, 27, 27, 0.92);
+}
+
+.draw-round-result-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 26;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.draw-round-result-overlay.hidden {
+  display: none;
+}
+
+.draw-round-result-overlay.is-active {
+  opacity: 1;
+}
+
+.draw-round-result-card {
+  min-width: 280px;
+  max-width: min(88vw, 420px);
+  padding: 24px 26px;
+  border-radius: 24px;
+  background: linear-gradient(145deg, #ffffff, #f8fafc);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  text-align: center;
+  transform: translateY(10px) scale(0.96);
+  transition: transform 200ms ease;
+}
+
+.draw-round-result-overlay.is-active .draw-round-result-card {
+  transform: translateY(0) scale(1);
+}
+
+.draw-round-result-badge {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #2563eb;
+}
+
+#draw-round-result-title {
+  margin: 12px 0 0;
+  font-size: 32px;
+  color: #0f172a;
+}
+
+#draw-round-result-subtitle {
+  margin: 10px 0 0;
+  color: #475569;
+  line-height: 1.6;
 }
 
 @media (max-width: 820px) {
@@ -1218,11 +1541,25 @@ input:disabled {
     grid-template-columns: 1fr;
   }
 
+  .draw-board-stack,
+  .draw-guess-panel {
+    height: auto;
+  }
+
   .draw-toolbar,
   .draw-primary-actions,
   .draw-secondary-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .draw-canvas-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .draw-canvas-status {
+    justify-content: flex-start;
   }
 
   .draw-size-controls {
@@ -1253,7 +1590,31 @@ input:disabled {
   }
 
   .draw-canvas-wrap {
-    aspect-ratio: 4 / 3;
     min-height: 220px;
+  }
+
+  .guess-form {
+    grid-template-columns: 1fr;
+  }
+
+  .draw-word-card,
+  .draw-word-card.is-docked {
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+    width: auto;
+  }
+
+  .draw-word-card.is-focus {
+    left: 50%;
+    right: auto;
+    top: 50%;
+    width: min(420px, calc(100vw - 28px));
+  }
+
+  .draw-toast-stack {
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
   }
 }
